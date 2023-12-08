@@ -1,0 +1,9 @@
+{
+  "name": "@rulia/E-Hentai",
+  "title": "E-Hentai",
+  "description": "E-Hentai Plugin.",
+  "version": "<VERSION>",
+  "author": "ShinkiYuri",
+  "tags": ["E-Hentai", "Manga", "Comic", "eh"],
+  "homepage": "https://github.com/<AUTHOR.NAME>/plugin.E-Hentai"
+}

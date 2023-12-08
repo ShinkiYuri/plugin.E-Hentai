@@ -16,8 +16,8 @@ A Rulia plugin for reading [E-Hentai](https://e-hentai.org).
   
 You can log in in two ways (it works without logging in):  
   
-1.Manually add a header named `Cookie` in the Rulia plugin settings and fill in the Cookie.  
-2.Use the web popup to log in, fill in `https://e-hentai.org` as the URL, and log in successfully.
+ - Manually add a header named `Cookie` in the Rulia plugin settings and fill in the Cookie.  
+ - Use the web popup to log in, fill in `https://e-hentai.org` as the URL, and log in successfully.
 
 ## Thanks
 
