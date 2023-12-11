@@ -98,71 +98,92 @@ async function getMangaData(dataPageUrl: string) {
 
 async function getChapterImageList(chapterUrl: string) {
   try {
-    let pageSize: number = 0;
-    let urls = [chapterUrl];
-    let chapterUrls: string[] = [];
-    const pageRawResponse = await window.Rulia.httpRequest({
+    const chapterRawHTML = await window.Rulia.httpRequest({
       url: chapterUrl,
       method: 'GET'
     })
-    const pageSizePattern = /<td class="gdt2">(\d+)\s*pages?<\/td>/;
-    const pageSizeMatch = pageRawResponse.match(pageSizePattern);
-    if (!pageSizeMatch) {
+    
+    const totalImageCountPattern = /<td class="gdt2">(\d+)\s*pages?<\/td>/;
+    const totalImageCountMatch = chapterRawHTML.match(totalImageCountPattern);
+    if (!totalImageCountMatch) {
       return window.Rulia.endWithException('TOO_MANY_REQUESTS');
     }
-    pageSize = parseInt(pageSizeMatch[1]);
-    if (pageSize != 0) {
-      for (let i = 1; i <= Math.ceil(pageSize / 40); i++) {
-        urls.push(chapterUrl + '?p=' + i);
+    const totalImageCount = parseInt(totalImageCountMatch[1])
+    
+    const allImagePageUrls: string[] = []
+    if (totalImageCount != 0) {
+      const PAGE_SIZE = 40
+      const pageCount = Math.ceil(totalImageCount / PAGE_SIZE)
+      const chapterPageUrls = [];
+
+      for (let i = 0; i < pageCount; i++) {
+        chapterPageUrls.push(chapterUrl + '?p=' + i);
       }
+
       const semaphore = new Semaphore(5, 5);
-      const exec = async (url: string) => {
+      const httpReponsePool: { urls: string[], index: number }[] = []
+
+      const parseChapterPage = async (chapterPageUrl: string, index: number) => {
         await semaphore.waitAsync();
-        const chapterUrlsRawResponse: any = await window.Rulia.httpRequest({
-          url: url,
+        const chapterPageHTML: any = await window.Rulia.httpRequest({
+          url: chapterPageUrl,
           method: 'GET'
         });
-        const chapterUrlsPattern = /https:\/\/e-hentai\.org\/s\/\S+?(?=">)/g;
-        for (let item of (chapterUrlsRawResponse.match(chapterUrlsPattern))) {
-          chapterUrls.push(item);
-        }
-        semaphore.release();
+        
+        const imagePageUrlPattern = /https:\/\/e-hentai\.org\/s\/\S+?(?=">)/g;
+        const imagePageUrls = chapterPageHTML.match(imagePageUrlPattern)
+
+        httpReponsePool.push({
+          index,
+          urls: imagePageUrls
+        })
+
+        semaphore.release()
       }
-      const tasks = urls.map(url => exec(url));
+
+      const tasks = chapterPageUrls.map((url, index) => parseChapterPage(url, index))
       await Promise.all(tasks);
+
+      httpReponsePool.sort((a, b) => a.index - b.index)
+      for (const httpResponse of httpReponsePool) {
+        allImagePageUrls.push(...httpResponse.urls)
+      }
     }
+
     // Get image url.
     {
       const semaphore = new Semaphore(8, 8);
-      const pageUrls: string[] = [];
-      const exec = async (item: any) => {
-        await semaphore.waitAsync();
-        try {
-          const pageUrlsRawResponse: any = await window.Rulia.httpRequest({
-            url: item,
-            method: 'GET'
-          });
-          const pageUrl = (
-            (pageUrlsRawResponse.match(/<img\sid="img"\s[^>]*>/)[0]).match(/src="(https?:\/\/\S+)"/)[1]
-          ).replace(/src="|"/, '');
+      const httpReponsePool: { src: string, index: number }[] = []
 
-          pageUrls.push(pageUrl);
-        } finally {
-          semaphore.release();
+      const getImageUrl = async (imagePageUrl: string, index: number) => {
+        await semaphore.waitAsync();
+        const pageUrlsRawResponse: any = await window.Rulia.httpRequest({
+          url: imagePageUrl,
+          method: 'GET'
+        })
+        const imageSrc = (
+          (pageUrlsRawResponse.match(/<img\sid="img"\s[^>]*>/)[0]).match(/src="(https?:\/\/\S+)"/)[1]
+        ).replace(/src="|"/, '')
+        httpReponsePool.push({
+          index,
+          src: imageSrc
+        })
+        semaphore.release()
+      }
+
+      const tasks = allImagePageUrls.map((item, index) => getImageUrl(item, index))
+      await Promise.all(tasks)
+
+      httpReponsePool.sort((a, b) => a.index - b.index)
+
+      const imageUrls: string[] = httpReponsePool.map(item => item.src)
+      window.Rulia.endWithResult(imageUrls.map(url => {
+        return {
+          url,
+          width: 1,
+          height: 1
         }
-      };
-      const sequentialExec = async () => {
-        for (const item of chapterUrls) {
-          await exec(item);
-        }
-      };
-      await sequentialExec();
-      const result = pageUrls.map(item => ({
-        url: item,
-        width: 1,
-        height: 1
       }));
-      window.Rulia.endWithResult(result);
     }
   } catch (error) {
     window.Rulia.endWithException((error as Error).message);
