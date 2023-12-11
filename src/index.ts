@@ -13,36 +13,34 @@ interface IHentagMangaListItem {
 class Semaphore {
   availablePermits: number;
   maxCount: number;
-  waiters: any[];
+  waiters: (() => void)[];
   waitAsync() {
-    return new Promise((resolve) => {
+    return new Promise<void>((resolve) => {
       if (this.availablePermits > 0) {
         this.availablePermits--;
-        // @ts-ignore TS(2403) FIXME: Unknown error
         resolve();
       } else {
-        this.waiters.push(resolve);
+        this.waiters.push(() => resolve());
       }
-    })
+    });
   }
-
   release() {
     if (this.waiters.length > 0) {
       const resolve = this.waiters.shift();
-      resolve();
+      resolve?.(); // Invoke the resolve function
     } else if (this.availablePermits < this.maxCount) {
-      this.availablePermits++
+      this.availablePermits++;
     } else {
       throw new Error('Semaphore release error: max permit count exceeded.');
     }
   }
-
   constructor(initialCount: number, maxCount: number) {
     this.availablePermits = initialCount;
     this.maxCount = maxCount;
     this.waiters = [];
   }
 }
+
 
 async function getMangaList(page: number, pageSize: number, keyword: string) {
   const url = 'https://hentag.com/public/api/vault-search';
@@ -109,13 +107,10 @@ async function getChapterImageList(chapterUrl: string) {
     })
     const pageSizePattern = /<td class="gdt2">(\d+)\s*pages?<\/td>/;
     const pageSizeMatch = pageRawResponse.match(pageSizePattern);
-
     if (!pageSizeMatch) {
       return window.Rulia.endWithException('TOO_MANY_REQUESTS');
     }
-
     pageSize = parseInt(pageSizeMatch[1]);
-
     if (pageSize != 0) {
       for (let i = 1; i <= Math.ceil(pageSize / 40); i++) {
         urls.push(chapterUrl + '?p=' + i);
@@ -136,33 +131,37 @@ async function getChapterImageList(chapterUrl: string) {
       const tasks = urls.map(url => exec(url));
       await Promise.all(tasks);
     }
-
     // Get image url.
     {
       const semaphore = new Semaphore(8, 8);
       const pageUrls: string[] = [];
       const exec = async (item: any) => {
         await semaphore.waitAsync();
-        const pageUrlsRawResponse: any = await window.Rulia.httpRequest({
-          url: item,
-          method: 'GET'
-        });
-        const pageUrl = (
-          (pageUrlsRawResponse.match(/<img\sid="img"\s[^>]*>/)[0]).match(/src="(https?:\/\/\S+)"/)[1]
-        ).replace(/src="|"/, '');
-        pageUrls.push(pageUrl);
-        semaphore.release();
-      }
-      const tasks = chapterUrls.map(item => exec(item));
-      await Promise.all(tasks);
-      const result = [];
-      for (let item of pageUrls) {
-        result.push({
-          url: item,
-          width: 1,
-          height: 1
-        })
-      }
+        try {
+          const pageUrlsRawResponse: any = await window.Rulia.httpRequest({
+            url: item,
+            method: 'GET'
+          });
+          const pageUrl = (
+            (pageUrlsRawResponse.match(/<img\sid="img"\s[^>]*>/)[0]).match(/src="(https?:\/\/\S+)"/)[1]
+          ).replace(/src="|"/, '');
+
+          pageUrls.push(pageUrl);
+        } finally {
+          semaphore.release();
+        }
+      };
+      const sequentialExec = async () => {
+        for (const item of chapterUrls) {
+          await exec(item);
+        }
+      };
+      await sequentialExec();
+      const result = pageUrls.map(item => ({
+        url: item,
+        width: 1,
+        height: 1
+      }));
       window.Rulia.endWithResult(result);
     }
   } catch (error) {

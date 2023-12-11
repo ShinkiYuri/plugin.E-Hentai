@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.0.4
+  - Fix page sorting error.
+
 ## 0.0.3
   - Convert from JavaScript to TypeScript.
 
